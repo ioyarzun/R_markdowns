@@ -1,0 +1,176 @@
+---
+title: "handson 5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Download and prepare the data
+library(readr)
+breast_cancer_wisconsin <- read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.data", col_names = FALSE)
+
+breast_cancer_wisconsin$X11 <- as.factor(breast_cancer_wisconsin$X11)
+breast_cancer_wisconsin$X11 <- factor(breast_cancer_wisconsin$X11, levels = c("2" , "4"), labels = c("benign", "malignant"))
+
+breast_cancer_wisconsin$X7 <- as.numeric(breast_cancer_wisconsin$X7)
+
+breast_cancer_wisconsin$X7[is.na(breast_cancer_wisconsin$X7)]<-3.545
+
+#colnames(breast_cancer_wisconsin) <- c("ID","Clump_Thickness", "Uniformity_Size", "Uniformity_Shape",  "Marginal_Adhesion", "Epithelial_Size", "Bare_Nuclei", "Bland_Chromatin", "Normal_Nucleoli", "Mitoses", "Class")
+```
+
+
+```{r}
+#Pairwise scatterplots between variables.
+library(GGally)
+library(ggplot2)
+
+ggpairs(breast_cancer_wisconsin, aes(color = breast_cancer_wisconsin$X11))
+```
+
+```{r}
+#Analysis of principal components and their importance.  
+
+cancerprc <- prcomp(breast_cancer_wisconsin[2:10], scale. = TRUE)
+#We make the test from the column 2 to 10 cause the first one are the gene id and the last one the cancer type
+
+cancerprc$rotation#Analysis of principal components and their percentage valor
+
+percentage <- 100*cancerprc$sdev^2/sum(cancerprc$sdev^2)
+
+percentage_data <- data.frame(percentage=percentage, PC=1:length(percentage))
+
+#Visualization of their importance
+ggplot(percentage_data, aes(x=PC, y=percentage)) +
+ geom_bar(stat="identity") +
+ geom_text(aes(label=round(percentage, 2)), size=4, vjust=-.5) +
+ ylim(0, 70)
+```
+
+
+```{r}
+#Visualization of PC1 and PC2 coloured by Cancer type.
+
+scaleddataprc <- cancerprc$x
+prc_data <- data.frame(scaleddataprc, Cancertype=breast_cancer_wisconsin$X11)
+
+str(prc_data)
+
+ggplot(prc_data, aes(x=prc_data$PC1, y=prc_data$PC2, color = Cancertype)) + geom_point(alpha=0.2)+ scale_color_manual(values = topo.colors(length(3:5)))
+
+```
+
+```{r}
+#t-SNE application and results visualization at 2 different perplexity values.
+
+library(Rtsne)
+
+tsne <- Rtsne(breast_cancer_wisconsin[2:10], dims=2, perplexity = 10, verbose= TRUE, max_iter=500, check_duplicates = FALSE) 
+#We make the test from the column 2 to 10 cause the first one are the gene id and the last one the cancer type
+
+
+#plot(tsne$Y, t= 'n', main = "tsne perplexity 10")
+#points(tsne$Y, labels = breast_cancer_wisconsin$X11, col = rainbow(length(unique(breast_cancer_wisconsin$X11))), cex = 0.5)
+#legend(x = "bottomright", legend = c("Bening", "Malignant"), fill = rainbow(length(unique(breast_cancer_wisconsin$X11))), title = "Cancer type")
+
+
+
+tsne2 <- Rtsne(breast_cancer_wisconsin[2:10], dims=2, perplexity = 40, verbose= TRUE, max_iter=500, check_duplicates = FALSE)
+
+#plot(tsne_data2$X1,tsne_data$X2, main = "tsne perplexity 40")
+#points(tsne_data2$X1, tsne_data$X2, labels = breast_cancer_wisconsin$X11, col = rainbow(length(unique(breast_cancer_wisconsin$X11))), cex = 0.5)
+#legend(x = "bottomright", legend = c("Bening", "Malignant"), fill = rainbow(length(unique(breast_cancer_wisconsin$X11))), title = "Cancer type")
+
+
+tsne_data <- data.frame(tsne$Y, Cancertype = breast_cancer_wisconsin$X11)
+tsne_data2 <- data.frame(tsne2$Y, Cancertype = breast_cancer_wisconsin$X11)
+
+ggplot(tsne_data, aes(x=tsne_data$X1, y=tsne_data$X2, color = Cancertype)) + geom_point(alpha=0.5) + ggtitle("tSNE perplexity 10")
+ggplot(tsne_data2, aes(x=tsne_data2$X1, y=tsne_data2$X2, color = Cancertype)) + geom_point(alpha=0.5) + ggtitle("tSNE perplexity 40")
+```
+
+
+
+#Hands on part II
+
+```{r}
+
+#Preparing data
+
+library(ISLR)
+cancertype <- NCI60$labs
+microarray = data.frame( NCI60$data)
+
+row.names(microarray) <- c("CNS 1","CNS 2","CNS 3","RENAL 1","BREAST 1","CNS 4","CNS 5","BREAST 2","NSCLC 1","NSCLC 2","RENAL 2","RENAL 3","RENAL 4","RENAL 5","RENAL 6","RENAL 7","RENAL 8","BREAST 3","NSCLC 3","RENAL 9","UNKNOWN 1","OVARIAN 1","MELANOMA 1","PROSTATE 1","OVARIAN 2","OVARIAN 3","OVARIAN 4","OVARIAN 5","OVARIAN 6","PROSTATE 2","NSCLC 4","NSCLC 5","NSCLC 6","LEUKEMIA 1","K562B-repro 1","K562A-repro 1","LEUKEMIA 2","LEUKEMIA 3","LEUKEMIA 4","LEUKEMIA 5","LEUKEMIA 6","COLON 1","COLON 2","COLON 3","COLON 4","COLON 5","COLON 6","COLON 7","MCF7A-repro 1","BREAST 4","MCF7D-repro 1","BREAST 5","NSCLC 7","NSCLC 8","NSCLC 9","MELANOMA 2","BREAST 6","BREAST 7","MELANOMA 3","MELANOMA 4","MELANOMA 5","MELANOMA 6","MELANOMA 7","MELANOMA 8")
+
+scaleddata <- scale(microarray)
+
+
+#klusterization with kmeans function (k=4)
+kclu <- function(k) {
+ tmp = kmeans(scaleddata, k, nstart = 10)
+}
+
+kmea <- kclu(4)
+
+
+#Analysis of principal components and their percentage valor
+nciprc <- prcomp(microarray, scale. = TRUE)
+
+percentage <- 100*nciprc$sdev^2/sum(nciprc$sdev^2)
+percentage
+percentage_data <- data.frame(percentage=percentage, PC=1:length(percentage))
+
+ggplot(percentage_data, aes(x=PC, y=percentage)) +
+ geom_bar(stat="identity") +
+ geom_text(aes(label=round(percentage, 2)), size=2, vjust=-.5) +
+ ylim(0, 15)
+
+
+#heatmap <- heatmap(scaleddata, col = rainbow(length(unique(kmea$cluster))), cexRow = 0.5, main = "Heatmap", xlab = "Gene expression", ylab = "Tissues")
+
+```
+
+```{r}
+#PCA analysis on the data and visualization of PC1 and PC2 labeled by cancer types
+
+scaleddataprc <- nciprc$x
+prc_data <- data.frame(scaleddataprc, cancertype)
+
+ggplot(prc_data, aes(x=prc_data$PC1, y=prc_data$PC2, color = cancertype))+ geom_text(label = cancertype, cex = 1.9)
+```
+ 
+```{r}
+#Visualization of data using PC1 and PC2, coloured by cluster, using the kmeans clusters function (k = 4).
+
+scaleddataprc <- nciprc$x
+
+prc_data <- data.frame(scaleddataprc, kmea$cluster)
+prc_data$kmea.cluster <- as.factor(prc_data$kmea.cluster)
+
+ggplot(prc_data, aes(x=prc_data$PC1, y=prc_data$PC2, color = prc_data$kmea.cluster))+ geom_text(label = prc_data$kmea.cluster, cex = 3)
+
+#ggplot(prc_data, aes(x=prc_data$PC1, y=prc_data$PC2, color = prc_data$kmea.cluster))+ geom_text(label = rownames(microarray), cex = 3)
+```
+
+
+#What are the top 10 genes that contribute to the PC1 ?
+The genes that most contribute to the PC1 are the genes: 5868, 5872, 5874, 5886, 5887, 5902, 5937, 5951, 5956 and 5960. 
+
+```{r}
+
+rotations <- data.frame(nciprc$rotation)
+
+
+absrotations <- abs(rotations) #create variable with the absolutes values of rotations variable
+
+list(sort(absrotations$PC1, decreasing = TRUE)[10]) #Find the value for the row number 10 sorted by decreasing order of a variable, in this case absrotations$PC1
+
+which(absrotations$PC1 > 0.02856)#shows wich data have higher value than the 10th row
+
+sort(abs(nciprc$rotation[, 1]), decreasing = T) [1:10]
+```
+

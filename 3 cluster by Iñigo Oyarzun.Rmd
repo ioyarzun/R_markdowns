@@ -1,0 +1,95 @@
+---
+title: "clusters"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ISLR)
+microarray = NCI60$data
+row.names(microarray) <- c("CNS 1","CNS 2","CNS 3","RENAL 1","BREAST 1","CNS 4","CNS 5","BREAST 2","NSCLC 1","NSCLC 2","RENAL 2","RENAL 3","RENAL 4","RENAL 5","RENAL 6","RENAL 7","RENAL 8","BREAST 3","NSCLC 3","RENAL 9","UNKNOWN 1","OVARIAN 1","MELANOMA 1","PROSTATE 1","OVARIAN 2","OVARIAN 3","OVARIAN 4","OVARIAN 5","OVARIAN 6","PROSTATE 2","NSCLC 4","NSCLC 5","NSCLC 6","LEUKEMIA 1","K562B-repro 1","K562A-repro 1","LEUKEMIA 2","LEUKEMIA 3","LEUKEMIA 4","LEUKEMIA 5","LEUKEMIA 6","COLON 1","COLON 2","COLON 3","COLON 4","COLON 5","COLON 6","COLON 7","MCF7A-repro 1","BREAST 4","MCF7D-repro 1","BREAST 5","NSCLC 7","NSCLC 8","NSCLC 9","MELANOMA 2","BREAST 6","BREAST 7","MELANOMA 3","MELANOMA 4","MELANOMA 5","MELANOMA 6","MELANOMA 7","MELANOMA 8")
+
+```
+
+Now our data frame is ready, we have to scale it.
+
+```{r}
+scaleddata <- scale(microarray)
+```
+
+the next step is calculate the distances between points
+
+```{r}
+d <- dist(scaleddata, method = "euclidean")
+
+hcom <- hclust(d, method = "complete")
+plot(hcom, cex = 0.5, hang = -1, main = "Agglomerative (Bottom up) heriarchical cluster, method complete", cex.main = 0.8)
+rect.hclust(hcom, k=4,border = 2:5)
+
+hsin <- hclust(d, method = "single")
+plot(hsin, cex = 0.5, hang = -1, main = "Agglomerative (Bottom up) heriarchical cluster, method single", cex.main = 0.8)
+rect.hclust(hsin, k=4,border = 2:5)
+
+have <- hclust(d, method = "average")
+plot(have, cex = 0.5, hang = -1, main = "Agglomerative (Bottom up) heriarchical cluster, method average", cex.main = 0.8)
+rect.hclust(have, k=4,border = 2:5)
+
+hward <- hclust(d, method = "ward.D")
+plot(hward, cex = 0.5, hang = -1, main = "Agglomerative (Bottom up) heriarchical cluster, method ward", cex.main = 0.8)
+rect.hclust(hward, k=4,border = 2:5)
+
+```
+
+I think the best linkage approach performance is the Ward one because most of the same tissues samples are together or, at least, close each other. I suggest to create 4 clusters.
+
+```{r}
+library(cluster)
+qwe <- diana(scaleddata, diss = inherits(data, "dist"), metric = "euclidean", stand = FALSE)
+```
+
+
+```{r}
+plot(qwe, cex.lab = 0.5, hang = -1, main = "Divise (Top-Down) heriarchical cluster")
+rect.hclust(qwe, k=4, border = 2:5)
+```
+
+Now we will generate an algorithm to check what´s the optimal number of clusters.
+```{r}
+kclu <- function(k) {
+ tmp = kmeans(scaleddata, k, nstart = 10)
+}
+
+
+k.values <- 1:15
+kclu_values <- NULL
+for (k in k.values) {
+   aux <- kclu(k)$tot.withins; 
+   print(aux);
+   kclu_values <- c(kclu_values,aux);
+}
+
+plot(k.values, kclu_values,
+     type="b", pch=19, frame = FALSE,
+     xlab = "Number of clusters K",
+     ylab = "Total within-clusters sum of squares")
+
+```
+
+It looks like the optimal number of clusters is four, because beyond fourth point the total within clusters sum of squares doesn´t decrease enough for creating another cluster. 
+
+Now we can make a heatmap colouring it in base of the clusters classification:
+
+```{r}
+kmea <- kclu(4)
+
+heatmap <- heatmap(scaleddata, col = kmea$cluster, cexRow = 0.5, main = "Heatmap", xlab = "Gene expression", ylab = "Tissues")
+library(pheatmap)
+pheatmap <- pheatmap(scaleddata, color = kmea$cluster,cluster_cols = FALSE)
+```
+
+
+
+The great advantage of k-means methodology versus the hierarchical clustering approach is that using k-mean we can know whats the optimal number of clusters.

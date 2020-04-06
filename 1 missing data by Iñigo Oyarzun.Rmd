@@ -1,0 +1,124 @@
+---
+title: "Untitled"
+output: html_document
+---
+NAME: Iñigo Oyarzun
+
+First, we have to start importing the date from the library "mlbench".
+
+```{R}
+library(mlbench)
+data("PimaIndiansDiabetes")
+```
+
+With the function str we can easily know how many rows, observations or individuals we have (768) and how many variables we have. Also, we can check what kind of variables are in the dataset. Here we have 8 numeric variables and a factorial variable.
+
+```{r}
+str(PimaIndiansDiabetes)
+```
+
+Using the function summary we will see a quick descriptive statistics of the values in each variable.
+
+```{R}
+summary(PimaIndiansDiabetes)
+```
+
+We can check that we have missing data because some numeric variables ($glucose, $pressure, $triceps, $insulin, $mass) have values equal to 0, but it doesn´t make sense in a biological context. We will characterize these values as missing data (NA) with the replace function
+
+```{r}
+PimaIndiansDiabetes[2:6] <- replace(PimaIndiansDiabetes[2:6],PimaIndiansDiabetes[2:6] == 0, NA)
+```
+
+We are able to make sure how many NA values we have in our dataset with the function is.na().
+
+```{r}
+summary(is.na(PimaIndiansDiabetes))
+```
+
+We also can check it using the summary function for our dataset again and we will see how the descriptive statistics have changed due to the missing data deletion.
+
+```{r}
+summary(PimaIndiansDiabetes)
+```
+
+
+Now we will use some graphical tools to explore our data.
+
+
+HISTOGRAMS
+
+```{r}
+hist(PimaIndiansDiabetes$pregnant,25)
+hist(PimaIndiansDiabetes$glucose,25)
+hist(PimaIndiansDiabetes$pressure,25)
+hist(PimaIndiansDiabetes$triceps,25)
+hist(PimaIndiansDiabetes$insulin,25)
+hist(PimaIndiansDiabetes$mass,25)
+hist(PimaIndiansDiabetes$pedigree,25)
+hist(PimaIndiansDiabetes$age,25)
+
+```
+
+Using these histograms, we can see that the variables $pregnant, $glucose, $insulin, $mass, $pedigree and $age are positive skew, we could reduce this skew by using the log or square root of these variables. Also we can appreciate that the variables $pressure and $triceps, apparently follow a normal distribution.
+
+
+PLOTS
+
+```{r}
+pairs(PimaIndiansDiabetes)
+plot(PimaIndiansDiabetes$triceps,PimaIndiansDiabetes$mass)
+```
+
+Using the first command we received all the plots that we can do between our variables. From this overview we saw that the variables $triceps and $mass could have some kind of correlation so we plot them in a bigger graphic with the second command and decide to make a lineal regression of them with the lm() function. 
+
+```{r}
+summary(lm(PimaIndiansDiabetes$triceps~PimaIndiansDiabetes$mass))
+
+```
+
+Looking at the adjusted R-squared we see that its just 0,4191 so the predictive power of this model is not good enough.
+
+
+BOXPLOTS
+
+```{r}
+boxplot(PimaIndiansDiabetes)
+boxplot(PimaIndiansDiabetes$insulin~PimaIndiansDiabetes$diabetes)
+boxplot(PimaIndiansDiabetes$glucose~PimaIndiansDiabetes$diabetes)
+
+```
+
+In the first graphic we can see the boxplots of each variable, also check that the variable $insulin have many outliers.
+
+We were interested in compare the boxplots for variables $glucose and $insulin differenciating between people with diabetes and people without diabetes. As we can see in the boxplots, women with diabetes use to have more glucose and also more insulin.
+
+
+The last thing we will make with our data will be changing the NA values of our variables (that before were 0) for the mean value in the variable. This way all the values in the variabes will be computable. We equal these missing data to the mean of their variable cause this way we won´t be knewing the variables as much as if we would replace the missing data to the minimum value of their variable just because their value was 0.
+
+```{r}
+ PimaIndiansDiabetes$glucose[is.na(PimaIndiansDiabetes$glucose)]<-117
+ PimaIndiansDiabetes$pressure[is.na(PimaIndiansDiabetes$pressure)]<-72.41
+ PimaIndiansDiabetes$triceps[is.na(PimaIndiansDiabetes$triceps)]<-29.15
+ PimaIndiansDiabetes$insulin[is.na(PimaIndiansDiabetes$insulin)]<-155.55
+ PimaIndiansDiabetes$mass[is.na(PimaIndiansDiabetes$mass)]<-32.46
+  
+```
+
+
+Fixing these data we will be able to check the correlation of the different variables with the next commands.
+
+```{r}
+correlation<-cor(PimaIndiansDiabetes[c(1,2,3,4,5,6,7,8)])
+library(corrplot)
+corrplot(correlation)
+```
+
+Also, with the goal of building any statistical model (for example a logistic regression) we could change the factorial variable $diabetes for a numeric variable, neg will be 0 and pos will be 1.
+
+```{r}
+PimaIndiansDiabetes$diabetes<-as.numeric(PimaIndiansDiabetes$diabetes)
+PimaIndiansDiabetes$diabetes <- replace(PimaIndiansDiabetes$diabetes,PimaIndiansDiabetes$diabetes == 1, 0)
+PimaIndiansDiabetes$diabetes <- replace(PimaIndiansDiabetes$diabetes,PimaIndiansDiabetes$diabetes == 2, 1)
+```
+
+

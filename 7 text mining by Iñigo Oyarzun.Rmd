@@ -1,0 +1,486 @@
+---
+title: "text mining"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidytext)
+library(XML)
+library(methods)
+library(tidyr)
+library(tm)
+library(NLP)
+#library (openNLP)
+```
+
+```{r}
+doc <-  xmlTreeParse("./pubmed_result_BC.xml", useInternal = TRUE)
+
+records <- getNodeSet(doc, "//PubmedArticle") # get list with all publications
+records[[1]] #  show the xml associated to 1 publication
+top <- xmlRoot(doc)
+xmlName(top)
+head(names(top)) 
+names( top[[ 1 ]] )
+names( top[[ 2 ]] )
+names( top[[ 1 ]][[1]] )
+names( top[[ 1 ]][[2]] )
+names( top[[ 1 ]][[2]][[1]] )
+
+```
+
+Retrieve the list of pubmed identifiers how many publications are there in the file ? 
+2746
+```{r}
+pmids <- xpathSApply(doc,"//MedlineCitation/PMID", xmlValue) # gets all pmidsç
+summary(pmids)
+```
+
+Get year of publication, Are all the publications from 2018?
+No, they are not in my file.
+```{r}
+years <- xpathSApply(doc, "//PubmedArticle/MedlineCitation/Article/Journal/JournalIssue/PubDate/Year", xmlValue)
+table(years)
+```
+
+Get all journals, What are the top 10 journals in which this info can be published? 
+Breast Cancer Res Treat
+BMC Cancer 
+Breast Cancer Res
+Oncogene
+Nat Commun
+Sci Rep
+Int J Mol Sci
+Mol Med Rep 
+Oncol Rep 
+PLoS One
+```{r}
+journals <- xpathSApply(doc, "//PubmedArticle/MedlineCitation/MedlineJournalInfo/MedlineTA", xmlValue)
+tab<-sort(table(journals), decreasing = TRUE)
+list(tab[1:10])
+```
+
+Get all titles 
+```{r}
+titles <- xpathSApply(doc, "//PubmedArticle/MedlineCitation/Article/ArticleTitle", xmlValue)
+```
+
+Get abstracts
+
+```{r}
+abstracts <- xpathSApply(doc, "//PubmedArticle/MedlineCitation/Article/Abstract", xmlValue) # this returns a vector
+# or
+#abstracts <-   xpathApply(top, "//Abstract", xmlValue) # this produces a list
+# creating df with the necessary info
+final_data <- as.data.frame(cbind(PMID=pmids, abstract=abstracts ), stringsAsFactors = FALSE)
+colnames(final_data)<- c("doc_id", "text")
+```
+
+To get more attributes for the xml file , check this script
+https://github.com/christopherBelter/pubmedXML/blob/master/pubmedXML.R
+https://www.stat.berkeley.edu/~statcur/Workshop2/Presentations/XML.pdf
+
+# simple text processing with tidyr and tidytext
+
+
+Break the text into individual tokens (a process called tokenization) and transform it to a tidy data structure. To do this, we use tidytext’s unnest_tokens() function.
+
+```{r}
+bcdata <- final_data %>%
+    unnest_tokens(word, text)
+```
+
+The two basic arguments to unnest_tokens used here are column names. First we have the output column name that will be created as the text is unnested into it (word, in this case), and then the input column that the text comes from (text, in this case). Remember that text_df above has a column called text that contains the data of interest.
+
+After using unnest_tokens, we’ve split each row so that there is one token (word) in each row of the new data frame; the default tokenization in unnest_tokens() is for single words, as shown here.  Also notice:
+
+Other columns, such as the line number each word came from, are retained.
+Punctuation has been stripped.
+By default, unnest_tokens() converts the tokens to lowercase, which makes them easier to compare or combine with other datasets. (Use the to_lower = FALSE argument to turn off this behavior).
+
+
+## Filtering stop words
+
+```{r}
+bcdata <- final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  count(word, sort = TRUE)
+```
+
+how many words occur only once? 
+```{r}
+sum(bcdata$n==1)
+```
+
+
+Explore some of them
+Lot of them are numbers and typos.
+
+```{r}
+final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  count(word) %>%
+  arrange(n)
+```
+
+now, remove  some non wordss
+
+```{r}
+library(stringr)
+final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(
+    !str_detect(word, pattern = "[[:digit:]]"), # removes any words with numeric digits
+    !str_detect(word, pattern = "[[:punct:]]"), # removes any remaining punctuations
+    !str_detect(word, pattern = "(.)\\1{2,}"),  # removes any words with 3 or more repeated letters
+    !str_detect(word, pattern = "\\b(.)\\b")    # removes any remaining single letter words
+    ) %>%
+  count(word) %>%
+  arrange(n)
+```
+
+stemming: We can stem words using the corpus::text_tokens() function.
+
+```{r}
+library(corpus)
+text <- c("love", "loving", "lovingly", "loved", "lovely")
+corpus::text_tokens(text, stemmer = "en") %>% unlist()
+## [1] "love" "love" "love" "love" "love"
+```
+
+```{r}
+final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(
+    !str_detect(word, pattern = "[[:digit:]]"), 
+    !str_detect(word, pattern = "[[:punct:]]"),
+    !str_detect(word, pattern = "(.)\\1{2,}"),  
+    !str_detect(word, pattern = "\\b(.)\\b")    
+    ) %>%
+  mutate(word = corpus::text_tokens(word, stemmer = "en") %>% unlist()) %>% # add stemming process
+  count(word) %>% 
+  group_by(word) %>%
+  summarize(n = sum(n)) %>%
+  arrange(desc(n))
+```
+
+Exercise: Plot the top 20 - 50 more frequent word in your data
+```{r}
+bcdatawords20_50 <- bcdata$word[20:50]
+bcdatan20_50 <- bcdata$n[20:50]
+bcdata20_50 <- data.frame(bcdatawords20_50,bcdatan20_50)
+
+ggplot(bcdata20_50, aes(x=bcdata20_50$bcdatawords20_50, y=bcdata20_50$bcdatan20_50))+ geom_text(label = bcdata20_50$bcdatawords20_50, cex = 3, aes(color = bcdata20_50$bcdatawords20_50)) + xlab("Top 20 - 50 words") +  ylab("frequency") + theme(
+axis.text.x = element_blank())
+
+```
+
+
+we’ve decided to simply filter out infrequent and non-informative words. The next question is how do we add these as features to our original data set?
+First, we create a vector of all words that we want to keep (this is based on filtering out stop words, non-informative words, and only words used at least 10 times or more). 
+Then we can use that word list to filter for only those words and then we summarize the count for each word at doc_id (pmid) level
+What results is a very wide and sparse feature set as many of the customers will have a majority of 0’s across these newly created   features.
+
+
+```{r}
+word_list <- final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(
+    !str_detect(word, pattern = "[[:digit:]]"), # removes any words with numeric digits
+    !str_detect(word, pattern = "[[:punct:]]"), # removes any remaining punctuations
+    !str_detect(word, pattern = "(.)\\1{2,}"),  # removes any words with 3 or more repeated letters
+    !str_detect(word, pattern = "\\b(.)\\b")    # removes any remaining single letter words
+    ) %>%
+  count(word) %>%
+  filter(n >= 10) %>% # filter for words used 10 or more times
+  pull(word)
+library(purrr)
+# create new features
+bc_features <- final_data %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) %>%
+  filter(word %in% word_list) %>%     # filter for only words in the wordlist
+  count(doc_id, word) %>%                 # count word useage by customer ID
+  spread(word, n) %>%                 # convert to wide format
+  map_df(replace_na, 0)               # replace NAs with 0
+```
+
+How many features does the data contain ? 
+```{r}
+ncol(bc_features)
+```
+
+
+## Creating n-grams 
+
+It follows a similar process as with bag of words, however, we just need to add some arguments to the unnest_tokens() function:
+
+```{r}
+final_data %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+  head()
+```
+
+
+To know more about this topic
+https://www.tidytextmining.com/index.html
+
+
+# Explore the text using the tm package
+
+## create corpus 
+To use the tm package we first transfrom the dataset to a corpus:
+
+```{r, eval=T}
+# to produce the corpus, only 2 column, with the names doc_id and text
+articles.corpus = VCorpus(DataframeSource(final_data))
+#head(inspect(articles.corpus))
+class(articles.corpus)
+articles.corpus[[1]]
+articles.corpus[[1]][[1]]
+articles.corpus[[1]][[2]]
+```
+
+## preprocessing
+
+Next we normalize the texts in the papers using a series of pre-processing steps: 
+1. Switch to lower case 
+2. Remove numbers  -> not recommended for the use case we are working with
+3. Remove punctuation marks and stopwords 
+4. Remove extra whitespaces
+
+```{r}
+toSpace <- content_transformer(function (x , pattern ) gsub(pattern, " ", x))
+docs <- tm_map(articles.corpus, content_transformer(tolower))
+docs <- tm_map(docs, toSpace, "@")
+docs <- tm_map(docs, toSpace, "\\|")
+docs <- tm_map(docs, toSpace, "\\(")
+docs <- tm_map(docs, toSpace, "\\)")
+docs <- tm_map(docs, toSpace, "â") 
+docs <- tm_map(docs, toSpace, "/") 
+docs <- tm_map(docs, toSpace, "@")
+docs <- tm_map(docs, toSpace, "<")
+docs <- tm_map(docs, toSpace, "~")
+docs <- tm_map(docs, toSpace, "#")
+docs <- tm_map(docs, toSpace, "Ÿ")
+docs <- tm_map(docs, toSpace, "ð")
+docs <- tm_map(docs, toSpace, "®")
+docs <- tm_map(docs,removePunctuation)
+# docs <- tm_map(docs, removeNumbers)
+# docs =  tm_map(docs, stripWhitespace)
+```
+
+To Stem or Not To Stem
+You may have noticed that we have not used the stemDocument() command, yet. This is a judgement call by the researcher and depends entirely on the type of text. For example, if your text contains the words “serve”, “services”, “servicing”, and “server” then the stemDocument() command will reduce these words down to their root and lump them all together under the stemmed word “serv”. To do this, the SnowballC package utilizes an algorithm developed by Dr. Martin Porter which hunts for suffixes and strips them to create a root. Dr. Porter’s algorithm has become the de facto language stemmer in natural language processing. There are, however, different word stemmers that use different algorithms. As a cautionary tale, some context may be lost or gained by the use of stemming. As a rule of thumb, the end justifies the mean.
+
+
+```{r}
+docs <- tm_map(docs, stemDocument);
+```
+
+# List standard English stop words
+
+```{r}
+stopwords("en")
+docs <- tm_map(docs, removeWords, stopwords("english"))
+```
+
+
+## create DTM 
+
+To analyze the textual data, we use a Document-Term Matrix (DTM) representation: 
+documents as the rows, terms/words as the columns, frequency of the term in the document as the entries. Because the number of unique words in the corpus the dimension can be large.  
+
+
+
+```{r}
+dtm <- DocumentTermMatrix(docs)
+inspect(dtm)
+dim(dtm)
+```
+
+
+# reduce sparsity
+Sparsity refers to the threshold of relative document frequency for a term, above which the term will be removed. Relative document frequency here means a proportion. 
+Sparsity refers to the terms (words) that appear in one document, but not the other. 
+
+
+To reduce the dimension of the DTM, we can emove the less frequent terms such that the sparsity is less than 0.99
+ 
+
+```{r}
+dtm = removeSparseTerms(dtm, 0.99)
+inspect(dtm)
+```
+
+
+```{r}
+findFreqTerms(dtm, 500)
+```
+
+
+```{r}
+freq <- colSums(as.matrix(dtm))
+ord <- order(freq,decreasing=TRUE)
+head(freq[ord], 60)
+wf <- data.frame(word=names(freq), freq=freq)   
+subset(wf, freq > 500)
+# wordcloud
+library(wordcloud)
+#setting the same seed each time ensures consistent look across clouds
+set.seed(42)
+#limit words by specifying min frequency
+wordcloud(names(freq),freq,min.freq=200,colors=brewer.pal(6,"Dark2"))
+```
+
+
+One may argue that in the wordcloud, words such as breast and cancer do not carry too much meaning in the setting, since we know that the entire corpus is about BC Therefore sometimes it is necessary to use the tf–idf(term frequency–inverse document frequency) instead of the frequencies of the term as entries, tf-idf measures the relative importance of a word to a document.
+
+```{r}
+dtm_tfidf <- DocumentTermMatrix(articles.corpus, control = list(weighting = weightTfIdf))
+dtm_tfidf = removeSparseTerms(dtm_tfidf, 0.95)
+dtm_tfidf
+```
+
+
+```{r}
+freq = data.frame(sort(colSums(as.matrix(dtm_tfidf)), decreasing=TRUE))
+wordcloud(rownames(freq), freq[,1], max.words=30, colors=brewer.pal(6,"Dark2"))
+```
+
+
+Exercise 
+What are the most common genes that appear in the documents?
+What are the most common drugs that appear in the documents?
+
+hint: get a dictionary of genes and of drugs using your favorite resource
+
+use the findAssocs function to retrieve terms related to the drugs. 
+hint: Use a very small corlimit because the corpus is rather small
+
+```{r, eval=F}
+library(readr)
+#Load dictionaries
+genesdictionary <- read_table2("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/Homo_sapiens.gene_info")
+drugbank_vocabulary <- read_csv("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/drugbank vocabulary.csv")
+
+#Get the most common genes and drugs on our documents using the dictionaries
+docgenes <- intersect(tolower(wf$word),tolower(genesdictionary$Symbol))
+docgenes <- docgenes[docgenes!="mice"]
+print("Genes that appear in the documents")
+list(docgenes)
+
+docdrugs <- intersect(tolower(wf$word),tolower(drugbank_vocabulary$`Common name`))
+docdrugs <- docdrugs[docdrugs!="oxygen"]
+print("Drugs that appear in the documents")
+list(docdrugs)
+
+#Find the words associated with the genes
+wordsassociatedtogenes <- findAssocs(dtm, docgenes, corlimit = 0.2)
+print("Words associated with the genes")
+list(wordsassociatedtogenes)
+
+```
+
+Exercise: The gene HER2 plays an important role in breast cancer, and it probably showed up as an important term in your exploratory analysis. In how many documents does this gene appear? Were you able to retrieve it in the previous exercise? 
+
+# keyword extraction
+
+```{r}
+library(udpipe)
+library(textrank)
+## First step: Take the english udpipe model and annotate the text. Note: this takes about 3 minutes
+ud_model <- udpipe_download_model(language = "english")
+ud_model <- udpipe_load_model(ud_model$file_model)
+#ud_model <- udpipe_load_model(file = "C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/english-ewt-ud-2.4-190531.udpipe")
+
+
+x <- udpipe_annotate(ud_model, x = subset(final_data, grepl("HER2", text))$text)
+x <- as.data.frame(x)
+head(x)
+length(x)
+```
+
+to know more about udpipe: http://ufal.mff.cuni.cz/udpipe/users-manual
+
+Exercise: how many POS are there in the udpipe model? 
+Exercise: plot the most frequent nouns
+```{r}
+length(x$xpos)
+```
+
+```{r}
+ggplot(subset(wf, freq>700), aes(x = reorder(word, -freq), y = freq)) + geom_bar() 
+```
+
+
+
+## Collocation (words following one another)
+```{r}
+stats <- keywords_collocation(x = x, 
+                              term = "token", group = c("doc_id", "paragraph_id", "sentence_id"),
+                              ngram_max = 4)
+head(stats)
+```
+
+
+## Co-occurrences: How frequent do words occur in the same sentence, in this case only nouns or adjectives
+
+```{r}
+stats <- cooccurrence(x = subset(x, upos %in% c("NOUN", "ADJ")), 
+                      term = "lemma", group = c("doc_id", "paragraph_id", "sentence_id"))
+head(stats)
+```
+
+
+## Co-occurrences: How frequent do words follow one another
+```{r}
+stats <- cooccurrence(x = x$lemma, 
+                      relevant = x$upos %in% c("NOUN", "ADJ"))
+head(stats)
+```
+
+
+## Co-occurrences: How frequent do words follow one another even if we would skip 2 words in between
+```{r}
+stats <- cooccurrence(x = x$lemma, 
+                      relevant = x$upos %in% c("NOUN", "ADJ"), skipgram = 2)
+```
+
+Exercise: plot a  network to represent the first n co-occurrences (choose between 30 and 50)
+
+
+
+## Textrank 
+Another approach for keyword detection is Textrank. Textrank is an algorithm implemented in the `textrank` R package. The algorithm allows to summarise text and as well allows to extract keywords. This is done by constructing a word network by looking if words are following one another. On top of that network the ‘Google Pagerank’ algorithm is applied to extract relevant words after which relevant words which are following one another are combined to get keywords. In the below example, we are interested in finding keywords using that algorithm of either nouns or adjectives following one another. You can see from the plot below that the keywords combines words together into multi-word expressions.
+
+
+```{r}
+stats <- textrank_keywords(x$lemma, 
+                          relevant = x$upos %in% c("NOUN", "ADJ"), 
+                          ngram_max = 8, sep = " ")
+stats <- subset(stats$keywords, ngram > 1 & freq >= 10)
+library(wordcloud)
+wordcloud(words = stats$keyword, freq = stats$freq)
+```
+
+
+
+
+# session info {.unnumbered}
+
+```{r, results='asis',  echo=FALSE, message=FALSE }
+sessionInfo()
+```
+

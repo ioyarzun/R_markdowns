@@ -1,0 +1,144 @@
+---
+title: "machine learning"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Download and prepare the data
+library(readr)
+breast_cancer_wisconsin <- read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.data", col_names = FALSE)
+
+colnames(breast_cancer_wisconsin) <- c("ID","Clump_Thickness", "Uniformity_Size", "Uniformity_Shape",  "Marginal_Adhesion", "Epithelial_Size", "Bare_Nuclei", "Bland_Chromatin", "Normal_Nucleoli", "Mitoses", "Class")
+
+breast_cancer_wisconsin$Class <- as.factor(breast_cancer_wisconsin$Class)
+breast_cancer_wisconsin$Class <- factor(breast_cancer_wisconsin$Class, levels = c("2" , "4"), labels = c("benign", "malignant"))
+
+#breast_cancer_wisconsin$Class <- replace(breast_cancer_wisconsin$Class,breast_cancer_wisconsin$Class == 2, 0) 
+#0 will be benign tumor
+#breast_cancer_wisconsin$Class <- replace(breast_cancer_wisconsin$Class,breast_cancer_wisconsin$Class == 4, 1) 
+#1 will be malignant tumor
+
+
+breast_cancer_wisconsin$Bare_Nuclei <- as.numeric(breast_cancer_wisconsin$Bare_Nuclei)
+
+breast_cancer_wisconsin$Bare_Nuclei[is.na(breast_cancer_wisconsin$Bare_Nuclei)]<-3.545
+
+str(breast_cancer_wisconsin)
+```
+
+
+Decision tree
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+
+datapartition <- createDataPartition(y=breast_cancer_wisconsin$Class, p=0.7, list=FALSE)
+training <- breast_cancer_wisconsin[datapartition,]
+testing <- breast_cancer_wisconsin[-datapartition,]
+
+#Hypertuning parameters:
+prune.control = rpart.control(minsplit =10, minbucket = round(10/3), cp= 0.04, maxcompete = 4, maxsurrogate = 5, usesurrogate = 2, xval = 10, surrogatestyle = 0, maxdepth = 3)
+
+#Create decision tree model
+treemod <- rpart(Class ~Clump_Thickness + Uniformity_Size + Uniformity_Shape + Marginal_Adhesion + Epithelial_Size + Bare_Nuclei + Bland_Chromatin + Normal_Nucleoli + Mitoses, data=training, control = prune.control)
+
+rpart.plot(treemod, extra=101) # we can change for 10#
+
+#Testing the model
+treepred <- predict(treemod,newdata =  testing, type = "class")
+confusionMatrix(treepred, testing$Class)
+#table(treepred, testing$Class)
+
+testingtree <- testing #duplicating testing dataset for adding right prediction column
+testingtree$predRight <- treepred==testingtree$Class
+
+ggplot(testingtree, aes(testingtree$Uniformity_Size, testingtree$Normal_Nucleoli)) + geom_point(aes(colour = factor(testingtree$predRight), shape = factor(testingtree$Class)), alpha = 0.5)
+ #se puede mezclar decision trees y kluster o PCA?
+
+```
+
+
+Random forest
+```{r}
+#Hypertuning parameters
+traincontrol.rf <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+mtry <- sqrt(ncol(breast_cancer_wisconsin)-1)#-1 due to ID column
+
+tune.grid.rf <- expand.grid(.mtry= mtry)
+
+prune.control = rpart.control(minsplit =10, minbucket = round(10/3), cp= 0.04, maxcompete = 4, maxsurrogate = 5, usesurrogate = 2, xval = 10, surrogatestyle = 0, maxdepth = 3)
+
+#Creating random forest model
+rfmod <- train(Class ~Clump_Thickness + Uniformity_Size + Uniformity_Shape + Marginal_Adhesion + Epithelial_Size + Bare_Nuclei + Bland_Chromatin + Normal_Nucleoli + Mitoses, data=training, method = "rf", metric = "Accuracy", tuneGrid = tune.grid.rf, trainControl = traincontrol.rf, control = prune.control) 
+
+
+#Testing the model
+rfpred <- predict(rfmod$finalModel,newdata = testing, type = "class")
+confusionMatrix(rfpred, testing$Class)
+#table(rfpred, testing$Class)
+
+testingrf <- testing
+testingrf$predRight <- rfpred==testingrf$Class
+
+ggplot(testingrf, aes(testingrf$Uniformity_Size, testingrf$Normal_Nucleoli)) + geom_point(aes(colour = factor(testingrf$predRight), shape = factor(testingrf$Class)), alpha = 0.5)
+
+```
+
+
+K Nearest Neighbours
+```{r}
+# Hypertuning parameters
+hypertunegrid <- expand.grid(k = seq(3, 25, by = 1)) 
+
+rcv_control <- trainControl(method='repeatedcv', number = 8, repeats = 5)  # 8 subsets, 5 repeats
+
+# Create KNN model
+knnmod <- train(Class ~Clump_Thickness + Uniformity_Size + Uniformity_Shape + Marginal_Adhesion + Epithelial_Size + Bare_Nuclei + Bland_Chromatin + Normal_Nucleoli + Mitoses, data=training, method = 'knn', tuneGrid = hypertunegrid, trControl = rcv_control)
+
+knnfinmod <- knnmod$finalModel
+
+#Visualizing accuracy of the model at different k.values
+results <- knnmod$results
+plot(results$k, results$Accuracy, type="b", pch=19,xlab = "K value", ylab = "Accuracy of the model")
+
+
+#Testing KNN model
+knnpred <- predict(knnmod,newdata = testing)
+confusionMatrix(knnpred, testing$Class)
+#table(knnpred, testing$Class)
+
+testingknn <- testing
+testingknn$predRight <- knnpred==testingrf$Class
+
+ggplot(testingknn, aes(testingknn$Uniformity_Size, testingknn$Normal_Nucleoli)) + geom_point(aes(colour = factor(testingknn$predRight), shape = factor(testingknn$Class)), alpha = 0.5)
+
+```
+
+
+Wich of all models perform better for this data?
+```{r}
+
+nrow(testingtree)#total of observation
+sum(testing$Class != treepred)#number of wrongly predicted values in tree model
+
+tree_errorperc <- (sum(testing$Class != treepred)/nrow(testingtree)*100)#Percentage of wronly predicted values
+rf_errorperc <- (sum(testing$Class != rfpred)/nrow(testingrf)*100)
+knn_errorperc <- (sum(testing$Class != knnpred)/nrow(testingknn)*100)
+
+
+
+x <- c("Decision tree", "Random forest", "KNN")
+factor(x,levels = c("1" , "2", "3"), labels = c("Decision tree", "Random forest", "KNN"))
+y <- c(tree_errorperc, rf_errorperc, knn_errorperc)
+errorperc <- data.frame(x,y)
+
+plot(errorperc$x ,errorperc$y, xlab = "Model", ylab = "Error percentage")
+
+```
+

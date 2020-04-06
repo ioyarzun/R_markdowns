@@ -1,0 +1,75 @@
+---
+title: "density plots"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First we have to get and prepare our data. We are not going to do any inputation cause in some variables that could change a lot the density function of the variable.
+```{r}
+library(mlbench)
+data("PimaIndiansDiabetes")
+library(ggplot2)
+PimaIndiansDiabetes[2:6] <- replace(PimaIndiansDiabetes[2:6],PimaIndiansDiabetes[2:6] == 0, NA)
+
+```
+
+
+Plots
+
+
+a) The density plot Pregnancies Grouped by outcome (in this case, outcome refers to presence of diabetes)
+
+```{r}
+diabetes <- PimaIndiansDiabetes$diabetes
+dplot <- ggplot(PimaIndiansDiabetes, aes(x=PimaIndiansDiabetes$pregnant, fill=diabetes,)) + geom_density(alpha=0.4)+ labs(title="Density plot of pregnancies",x="pregnancies")
+
+dplot + scale_fill_manual(values = topo.colors(length(3:5)))
+
+#other Way to do it without using ggplot 2
+
+#Subdivide the population in diabetic women or no diabetic women
+pos <- PimaIndiansDiabetes[PimaIndiansDiabetes$diabetes == "pos",]
+neg <- PimaIndiansDiabetes[PimaIndiansDiabetes$diabetes == "neg",]
+
+# Density of pregnancies of the total population (dpima), diabetic women (dpos) and no diabetic women (dneg)
+dpima <- density(PimaIndiansDiabetes$pregnant) 
+dpos <- density(pos$pregnant)
+dneg <- density(neg$pregnant)
+
+#Comparison of three density lines. Total population (black) diabetic  women (red) and no diabetic women (blue).
+plot(density(pos$pregnant), ylim = c(0, 0.2), col = "red", bty = "n" )
+lines(dneg, col = "blue")
+lines(dpima)
+
+```
+
+b) The density plot of glucose by presence outcome, and next to it, the boxplot of glucose by outcome
+```{r}
+dplot <- ggplot(PimaIndiansDiabetes, aes(x=PimaIndiansDiabetes$glucose, fill=diabetes)) + geom_density(alpha=0.4) + scale_fill_manual(values = topo.colors(length(3:5)))+ labs(title="Density plot of glucose",
+       x="glucose")
+
+dplot 
+
+bplot <- ggplot(PimaIndiansDiabetes, aes(y=PimaIndiansDiabetes$glucose, fill=diabetes)) + geom_boxplot(alpha=0.4) + scale_fill_manual(values = topo.colors(length(3:5)))+ labs(title="Boxplot of glucose variable", x="diabetes", y ="Glucose" )
+
+bplot 
+```
+
+c) The relationship between glucose and insulin levels colored by outcome
+
+```{r}
+ggplot(PimaIndiansDiabetes, aes(x=PimaIndiansDiabetes$glucose ,y = PimaIndiansDiabetes$insulin)) + geom_point(aes(color = diabetes), alpha=0.4) + geom_smooth(method = lm, aes(color=PimaIndiansDiabetes$diabetes)) + scale_color_manual(values = topo.colors(length(3:5)))+ labs(title="Relationship between glucose and insulin level",
+       x="Insulin level", y = "glucose")
+```
+
+
+
+d) The relationship between the Skinfold thickness of the triceps and the BMI, using one panel for each outcome
+```{r}
+
+ggplot(PimaIndiansDiabetes,aes(x=PimaIndiansDiabetes$triceps, y=PimaIndiansDiabetes$mass)) + geom_point(aes(color=diabetes), alpha=0.4) + geom_smooth(method = lm, aes(color=diabetes), se=FALSE) + scale_color_manual(values = topo.colors(length(3:5))) + labs(title="Relationship between $triceps and BMI",
+       x="Skinfold thickness of the triceps", y = "BMI")
+```

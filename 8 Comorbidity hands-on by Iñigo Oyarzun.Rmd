@@ -1,0 +1,315 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(lubridate)
+
+
+#Get the data and bind them into a single dataset called healthdataraw
+admissionData <- read_table2("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/MIMIC_campus_global/admissionData.txt")
+diagnosisData <- read_table2("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/MIMIC_campus_global/diagnosisData.txt")
+diseaseCodes <- read_table2("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/MIMIC_campus_global/diseaseCodes.txt")
+patientData <- read_table2("C:/Users/Iñigo Oyarzun/Desktop/R y Rstudio/MIMIC_campus_global/patientData.txt")
+
+healthdataraw <- patientData %>%
+  inner_join(admissionData) %>%
+  inner_join(diagnosisData)
+```
+
+
+Preparing the data
+```{r}
+#Get the patients age and the stay duration at the hospital and add it as a variable to the main dataset
+ages <- abs((as.Date(healthdataraw$patient_dateBirth)-as.Date(healthdataraw$admissionStartDate))/365)
+healthdataraw$age <- round(ages)
+healthdataraw$age <- as.numeric(healthdataraw$age)
+
+stay_duration <- as.Date(healthdataraw$admissionEndDate) - as.Date(healthdataraw$admissionStartDate)
+healthdataraw$stay_duration <- stay_duration
+healthdataraw$stay_duration <- as.numeric(healthdataraw$stay_duration)
+
+
+#healthdataraw$diagnosis_description<-as.factor(healthdataraw$diagnosis_description)
+
+#Create the dataset "healthdata" removing the individuals with age 0 and the ones older than 150 years
+healthdata <- healthdataraw[healthdataraw$age < 150 & healthdataraw$age!=0,]
+healthdata <- data.frame(healthdata)
+
+```
+
+
+- What are the most prevalent diseases? For both genders. Are they different by gender?
+```{r}
+#Data partition depending the patients sex
+healthdataFEMALE <- healthdata[healthdata$patient_sex=="F",]
+healthdataMALE <- healthdata[healthdata$patient_sex=="M",]
+
+barplot(head(sort(table(healthdata$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2, main = "Most prevalent diseases for both genders", ylab = "Frequency")
+
+barplot(head(sort(table(healthdataMALE$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2, main ="Most prevalent diseases for men", ylab = "Frequency" )
+
+barplot(head(sort(table(healthdataFEMALE$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2, main = "Most prevalent diseases for women", ylab = "Frequency" )
+
+```
+
+
+
+```{r}
+#Density plot of stay duration
+qplot(patient_sex, stay_duration, data = healthdata, geom = "violin")
+qplot(stay_duration, data = healthdata, geom = "density", color = patient_sex, fill = patient_sex, alpha = 0.3, xlab = "Stay duration", ylab = "Density")
+#ggplot(healthdata, aes(x = stay_duration)) + geom_density(aes(fill = patient_sex), alpha=0.4)
+
+#Plot Stay duration vs patient´s age. Apparently the age doesn´t affect to the stay duration.
+ggplot(healthdata, aes(x = age, y = stay_duration)) + geom_point(size = 0.5, alpha = 0.1) + geom_smooth() + labs(x = "Patient´s age", y = "Stay duration") #It takes long
+
+#We check their correlation and, in fact, they don´t have any correlation (cor=-0.054).
+cor(healthdata$age, healthdata$stay_duration)
+
+```
+
+```{r}
+barplot(head(sort(table(healthdata[healthdata$age > 60,]$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2 , ylab = "Frequency", main = "Most prevalent diseases for people older than 60 years")
+
+barplot(head(sort(table(healthdata[healthdata$age > 30 & healthdata$age < 60,]$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2, ylab = "Frequency", main = "Most prevalent diseases for people between 30 and 60 years")
+
+barplot(head(sort(table(healthdata[healthdata$age < 30,]$diagnosis_description), decreasing = TRUE), 16), cex.names = 0.8, horiz = FALSE, las = 2, ylab = "Frequency", main ="Most prevalent diseases for people younger than 30 years" )
+```
+
+```{r}
+obesitycodes <- diseaseCodes[grep("obesity",tolower(diseaseCodes$Description)),]$Code
+#obesitycodes <- c("27800" "27803" "64913" "64914")
+
+#obesityadmissionsid <- healthdata[grep("obesity",tolower(healthdata$diagnosis_description)),]$admission_id
+
+nrow(healthdata[grep("27800", healthdata$diagnosis_code),])
+nrow(healthdata[grep("27803", healthdata$diagnosis_code),])
+nrow(healthdata[grep("64913", healthdata$diagnosis_code),])
+nrow(healthdata[grep("64914", healthdata$diagnosis_code),])
+
+obesitycode <- "27800" #We will keep the code 27800 because it´s the one with most individuals and this way we will have more population for later statistics
+
+```
+
+
+```{r}
+#Dataset with the rows where the diagnosis code is equal to obesity code
+auxdataset<-healthdata[(healthdata$diagnosis_code == obesitycode),]
+
+#Taking into account admission id (4th column in auxdataset), isolate the patients from main dataset where the patient was dignosed with obesity in a new dataset with the rest of their diagnosis
+caseswithobesity<- inner_join(auxdataset[4:4],healthdata)
+
+#Check if the new dataset was correctly created
+obesityadmissionsid <- healthdata[grep(obesitycode, healthdata$diagnosis_code),]$admission_id
+
+sortedobadmid <- sort(obesityadmissionsid)
+sorteddatasetadmid <- sort(unique(caseswithobesity$admission_id))
+ttrue=0
+ffalse=0
+
+for (i in 1:length(sorteddatasetadmid)) {
+    if(sortedobadmid[i]==sorteddatasetadmid[i]){ttrue=ttrue+1}else{ffalse=ffalse+1}
+} # Use i for going through both indexes. Both admissions id list should be equal so the length should be equal too, and as they are sorted for a given index they should have the same admission id number.
+
+if(ttrue==length(sortedobadmid) && ffalse==0){print("The new dataset was correctly created")}else{print("There was an error creating the dataset")}
+
+```
+
+```{r}
+#Table with the co-ocurrencies between obesity and other diseases (using diseases code)
+coocurrencies <- data.frame(sort(table(caseswithobesity$diagnosis_code), decreasing = TRUE))
+colnames(coocurrencies) <- c("diagnosis_code", "frequency")
+#Filter the co-ocurrences keeping the codes that co-occur with obesity more than 5 times
+filteredcoocurrencies <- coocurrencies[coocurrencies$frequency > 5,]
+```
+
+CO-OCURRENCES IN THE WHOLE POPULATION
+
+Pa: Number of patients from the main dataset suffering obesity
+N: Total number of patients
+Pb: number of patients suffering the other disease
+Pab: number of patients suffering obesity and the other disease, we take this number from the caseswithobesity dataset
+```{r}
+
+#Initializing the dataframe with a row of numbers
+comorbidities_by_code <- data.frame(rbind(c(1,2,3,4,5,6)))
+
+
+Pa <- as.numeric(length(unique(healthdata[healthdata$diagnosis_code == "27800",]$patient_id)))
+N <- as.numeric(length(unique(healthdata$patient_id)))
+
+#code in filteredcoocurrencies$diagnosis_code[2:length(filteredcoocurrencies$diagnosis_code)] for skipping the first diagnosis code that corresponds to obesity (27800)
+for (code in filteredcoocurrencies$diagnosis_code[2:length(filteredcoocurrencies$diagnosis_code)]) {
+ 
+  Pb <- as.numeric(length(unique(healthdata[healthdata$diagnosis_code == code,]$patient_id)))
+  Pab <- as.numeric(length(unique(caseswithobesity[caseswithobesity$diagnosis_code == code,]$patient_id)))
+  Pnn <- N - Pa - Pb + Pab
+
+  fi <- fisher.test(rbind(c(Pab,(Pb-Pab)),c((Pa-Pab),Pnn)))$p.value
+  rr <- (Pab*N)/(Pa*Pb)
+  ods <- (Pab*Pnn)/((Pa-Pab)*(Pb-Pab))
+  pe <- ((Pab*N)-(Pa*Pb))/sqrt(Pa*Pb*(N-Pa)*(N-Pb))
+  
+  r <- c(code, diseaseCodes[diseaseCodes$Code == code,]$Description, fi, rr, ods, pe)
+  
+  comorbidities_by_code <- rbind(comorbidities_by_code,r)
+}
+
+colnames(comorbidities_by_code) <- c("Diagnosis_code","Description","Fisher_pvalue","Relative_risk","ODS","Pearson")
+#Remove the row wich we initialized the dataframe with and rename the rows
+comorbidities_by_code <- comorbidities_by_code[2:length(comorbidities_by_code$Description),]
+row.names(comorbidities_by_code) <- c(1:length(comorbidities_by_code$Description))
+
+comorbidities_by_code$Fisher_pvalue <- as.numeric(comorbidities_by_code$Fisher_pvalue)
+comorbidities_by_code$Relative_risk <- as.numeric(comorbidities_by_code$Relative_risk)
+comorbidities_by_code$ODS <- as.numeric(comorbidities_by_code$ODS)
+comorbidities_by_code$Pearson <- as.numeric(comorbidities_by_code$Pearson)
+ 
+#Get the significant comorbities
+table(comorbidities_by_code[comorbidities_by_code$Fisher_pvalue<0.05 & comorbidities_by_code$Relative_risk>1 & comorbidities_by_code$ODS>2,]$Description)
+```
+
+
+As we can see some of the disease description are repeated. This could affect to the statistics in the way that the codes divide patients with the same disease description in subgroups with less sizes. 
+That´s why we will make the same table but now regarding to the description, independently of the code.
+
+```{r}
+#Initializing the dataframe with a row of numbers
+comorbidities_by_description <- data.frame(rbind(c(1,2,3,4,5)))
+
+
+Pa <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == "Obesity",]$patient_id)))
+N <- as.numeric(length(unique(healthdata$patient_id)))
+
+#descri inunique(caseswithobesity$diagnosis_description) cause this way we will get all the diseases that patients with obesity had but independently of the code
+for (descri in unique(caseswithobesity$diagnosis_description)) {
+ 
+  Pb <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == descri,]$patient_id)))
+  Pab <- as.numeric(length(unique(caseswithobesity[caseswithobesity$diagnosis_description == descri,]$patient_id)))
+  Pnn <- N - Pa - Pb + Pab
+
+  fi <- fisher.test(rbind(c(Pab,(Pb-Pab)),c((Pa-Pab),Pnn)))$p.value
+  rr <- (Pab*N)/(Pa*Pb)
+  ods <- (Pab*Pnn)/((Pa-Pab)*(Pb-Pab))
+  pe <- ((Pab*N)-(Pa*Pb))/sqrt(Pa*Pb*(N-Pa)*(N-Pb))
+  
+  r <- c(descri, fi, rr, ods, pe)
+  
+  comorbidities_by_description <- rbind(comorbidities_by_description,r)
+}
+
+colnames(comorbidities_by_description) <- c("Description","Fisher_pvalue","Relative_risk","ODS","Pearson")
+#Remove the row wich we initialized the dataframe with and rename the rows
+comorbidities_by_description <- comorbidities_by_description[2:length(comorbidities_by_description$Description),]
+row.names(comorbidities_by_description) <- c(1:length(comorbidities_by_description$Description))
+
+comorbidities_by_description$Fisher_pvalue <- as.numeric(comorbidities_by_description$Fisher_pvalue)
+comorbidities_by_description$Relative_risk <- as.numeric(comorbidities_by_description$Relative_risk)
+comorbidities_by_description$ODS <- as.numeric(comorbidities_by_description$ODS)
+comorbidities_by_description$Pearson <- as.numeric(comorbidities_by_description$Pearson)
+
+#Get the significant comorbities
+table(comorbidities_by_description[comorbidities_by_description$Fisher_pvalue<0.05 & comorbidities_by_description$Relative_risk>1 & comorbidities_by_description$ODS>2,]$Description)
+```
+
+Some bibliography supportting some comorbities of obesity:
+
+Staphylococcus: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6490236/pdf/idr-12-877.pdf
+
+Angiopathy, Ostheoarthros: https://www.who.int/news-room/fact-sheets/detail/obesity-and-overweight
+
+Disaccharidase: https://www.ncbi.nlm.nih.gov/pubmed/22806765
+
+Sleep: https://www.ncbi.nlm.nih.gov/pubmed/31725607 https://www.ncbi.nlm.nih.gov/pubmed/31760828
+
+Apnea: https://www.ncbi.nlm.nih.gov/pubmed/31742941 https://www.ncbi.nlm.nih.gov/pubmed/31684029
+
+
+COMORBIDITIES FOR MEN POPULATION
+```{r}
+#Initializing the dataframe with a row of numbers
+comorbidities_by_description_male <- data.frame(rbind(c(1,2,3,4,5)))
+
+
+Pa <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == "Obesity" & healthdata$patient_sex == "M",]$patient_id)))
+N <- as.numeric(length(unique(healthdata[healthdata$patient_sex == "M",]$patient_id)))
+
+#descri inunique(caseswithobesity$diagnosis_description) cause this way we will get all the diseases that patients with obesity had but independently of the code
+for (descri in unique(caseswithobesity$diagnosis_description)) {
+ 
+  Pb <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == descri & healthdata$patient_sex == "M",]$patient_id)))
+  Pab <- as.numeric(length(unique(caseswithobesity[caseswithobesity$diagnosis_description == descri & caseswithobesity$patient_sex == "M",]$patient_id)))
+  Pnn <- N - Pa - Pb + Pab
+
+  fi <- fisher.test(rbind(c(Pab,(Pb-Pab)),c((Pa-Pab),Pnn)))$p.value
+  rr <- (Pab*N)/(Pa*Pb)
+  ods <- (Pab*Pnn)/((Pa-Pab)*(Pb-Pab))
+  pe <- ((Pab*N)-(Pa*Pb))/sqrt(Pa*Pb*(N-Pa)*(N-Pb))
+  
+  r <- c(descri, fi, rr, ods, pe)
+  
+  comorbidities_by_description_male <- rbind(comorbidities_by_description_male,r)
+}
+
+colnames(comorbidities_by_description_male) <- c("Description","Fisher_pvalue","Relative_risk","ODS","Pearson")
+#Remove the row wich we initialized the dataframe with and rename the rows
+comorbidities_by_description_male <- comorbidities_by_description_male[2:length(comorbidities_by_description_male$Description),]
+row.names(comorbidities_by_description_male) <- c(1:length(comorbidities_by_description_male$Description))
+
+comorbidities_by_description_male$Fisher_pvalue <- as.numeric(comorbidities_by_description_male$Fisher_pvalue)
+comorbidities_by_description_male$Relative_risk <- as.numeric(comorbidities_by_description_male$Relative_risk)
+comorbidities_by_description_male$ODS <- as.numeric(comorbidities_by_description_male$ODS)
+comorbidities_by_description_male$Pearson <- as.numeric(comorbidities_by_description_male$Pearson)
+
+#Get the significant comorbities
+table(comorbidities_by_description_male[comorbidities_by_description_male$Fisher_pvalue<0.05 & comorbidities_by_description_male$Relative_risk>1 & comorbidities_by_description_male$ODS>2,]$Description)
+```
+
+COMORBIDITIES FOR FEMALE POPULATION
+```{r}
+#Initializing the dataframe with a row of numbers
+comorbidities_by_description_female <- data.frame(rbind(c(1,2,3,4,5)))
+
+
+Pa <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == "Obesity" & healthdata$patient_sex == "F",]$patient_id)))
+N <- as.numeric(length(unique(healthdata[healthdata$patient_sex == "F",]$patient_id)))
+
+#descri in unique(caseswithobesity$diagnosis_description) cause this way we will get all the diseases that patients with obesity had but independently of the code
+for (descri in unique(caseswithobesity$diagnosis_description)) {
+ 
+  Pb <- as.numeric(length(unique(healthdata[healthdata$diagnosis_description == descri & healthdata$patient_sex == "F",]$patient_id)))
+  Pab <- as.numeric(length(unique(caseswithobesity[caseswithobesity$diagnosis_description == descri & caseswithobesity$patient_sex == "F",]$patient_id)))
+  Pnn <- N - Pa - Pb + Pab
+
+  fi <- fisher.test(rbind(c(Pab,(Pb-Pab)),c((Pa-Pab),Pnn)))$p.value
+  rr <- (Pab*N)/(Pa*Pb)
+  ods <- (Pab*Pnn)/((Pa-Pab)*(Pb-Pab))
+  pe <- ((Pab*N)-(Pa*Pb))/sqrt(Pa*Pb*(N-Pa)*(N-Pb))
+  
+  r <- c(descri, fi, rr, ods, pe)
+  
+  comorbidities_by_description_female <- rbind(comorbidities_by_description_female,r)
+}
+
+colnames(comorbidities_by_description_female) <- c("Description","Fisher_pvalue","Relative_risk","ODS","Pearson")
+#Remove the row wich we initialized the dataframe with and rename the rows
+comorbidities_by_description_female <- comorbidities_by_description_female[2:length(comorbidities_by_description_female$Description),]
+row.names(comorbidities_by_description_female) <- c(1:length(comorbidities_by_description_female$Description))
+
+comorbidities_by_description_female$Fisher_pvalue <- as.numeric(comorbidities_by_description_female$Fisher_pvalue)
+comorbidities_by_description_female$Relative_risk <- as.numeric(comorbidities_by_description_female$Relative_risk)
+comorbidities_by_description_female$ODS <- as.numeric(comorbidities_by_description_female$ODS)
+comorbidities_by_description_female$Pearson <- as.numeric(comorbidities_by_description_female$Pearson)
+
+#Get the significant comorbities
+table(comorbidities_by_description_female[comorbidities_by_description_female$Fisher_pvalue<0.05 & comorbidities_by_description_female$Relative_risk>1 & comorbidities_by_description_female$ODS>2,]$Description)
+```
+

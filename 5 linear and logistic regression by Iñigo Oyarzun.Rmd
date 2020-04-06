@@ -1,0 +1,111 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+prostate <- read_delim("https://web.stanford.edu/~hastie/ElemStatLearn/datasets/prostate.data", 
+    "\t", escape_double = FALSE, trim_ws = TRUE)
+
+prostatedata <- data.frame(prostate[2:11])# duplicate dataset without the first column
+rm(prostate)
+
+prostatedata$train <- as.factor(prostatedata$train)
+str(prostatedata)
+```
+
+```{r}
+library(caret)
+library(ggplot2)
+
+
+#split randomly the data taking the 60% of them for the training dataset
+datapartition <- createDataPartition(prostatedata$lpsa, p=0.60, list = FALSE)
+
+training <- prostatedata[datapartition,]
+testing <- prostatedata[-datapartition,]
+
+linereg <- train(lpsa~lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45, method = "lm", data=training)
+finmod <- linereg$finalModel
+
+summary (finmod) #As we see, some variables are not signficant for explain this model we could make another one just with the significant variables, but as we are taking a part of our data randomly each time we make a new model the significance of the variables for the model will change, because of the variance.
+
+
+lpsaexpected <- predict(finmod, testing) #adjust testing data to the model
+bias2 <- mean((testing$lpsa - lpsaexpected)^2) #mean of squared minimums
+variance <- var(testing$lpsa)
+
+
+testerror <- bias2+variance 
+
+testerror
+
+plot(finmod, pch = 19, cex= 0.5, col= "#00000010")
+plot(training$lpsa,finmod$residuals) #residuals plot is more or less homogeneus
+
+```
+
+
+
+
+
+LOGISTIC REGRESSION
+
+```{r}
+#Download and prepare the data
+library(readr)
+breast_cancer_wisconsin <- read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.data", col_names = FALSE)
+
+colnames(breast_cancer_wisconsin) <- c("ID","Clump_Thickness", "Uniformity_Size", "Uniformity_Shape",  "Marginal_Adhesion", "Epithelial_Size", "Bare_Nuclei", "Bland_Chromatin", "Normal_Nucleoli", "Mitoses", "Class")
+
+#breast_cancer_wisconsin$Class <- as.factor(breast_cancer_wisconsin$Class)
+#breast_cancer_wisconsin$Class <- factor(breast_cancer_wisconsin$Class, levels = c("2" , "4"), labels = c("benign", "malignant"))
+
+breast_cancer_wisconsin$Class <- replace(breast_cancer_wisconsin$Class,breast_cancer_wisconsin$Class == 2, 0) 
+#0 will be benign tumor
+breast_cancer_wisconsin$Class <- replace(breast_cancer_wisconsin$Class,breast_cancer_wisconsin$Class == 4, 1) 
+#1 will be malignant tumor
+
+
+breast_cancer_wisconsin$Bare_Nuclei <- as.numeric(breast_cancer_wisconsin$Bare_Nuclei)
+
+breast_cancer_wisconsin$Bare_Nuclei[is.na(breast_cancer_wisconsin$Bare_Nuclei)]<-3.545
+
+str(breast_cancer_wisconsin)
+```
+
+```{r}
+#split randomly the data taking the 50% of them for the training dataset
+datapartitionlog <- createDataPartition(breast_cancer_wisconsin$Class, p=0.50, list = FALSE)
+
+traininglog <- breast_cancer_wisconsin[datapartitionlog,]
+testinglog <- breast_cancer_wisconsin[-datapartitionlog,]
+
+logreg <- train(Class~Clump_Thickness + Uniformity_Size + Uniformity_Shape + Marginal_Adhesion + Epithelial_Size + Bare_Nuclei + Bland_Chromatin + Normal_Nucleoli + Mitoses, method = "glm", data=traininglog, )
+#family = "binomial"??
+
+summary (logreg)
+
+#glm(traininglog$Class~traininglog$Clump_Thickness + traininglog$Uniformity_Size + traininglog$Uniformity_Shape + traininglog$Marginal_Adhesion + traininglog$Epithelial_Size + traininglog$Bare_Nuclei + traininglog$Bland_Chromatin + traininglog$Normal_Nucleoli + traininglog$Mitoses, )
+
+finmodlog <- logreg$finalModel
+
+Classexpected <- predict(finmodlog, testinglog) 
+bias2log <- mean((testinglog$Class - Classexpected)^2)
+variancelog <- var(testinglog$Class)
+
+testerrorlog <- bias2log+variancelog 
+
+testerrorlog
+
+plot(finmodlog, pch = 19, cex= 0.5, col= "#00000010")
+```
+
+
+
+
